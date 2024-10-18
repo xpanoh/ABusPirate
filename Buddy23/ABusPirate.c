@@ -82,6 +82,17 @@ int main() {
     configure_adc();
 
     while (1) {
+        // Vary duty cycle and frequency to demonstrate PWM control
+        for (float duty_cycle = 0.1; duty_cycle <= 1.0; duty_cycle += 0.1) {
+            setup_pwm(PWM_PIN, 1000, duty_cycle);  // Vary duty cycle from 10% to 100% at 1000 Hz
+            sleep_ms(1000);  // Pause to observe each change
+        }
+
+        for (uint frequency = 500; frequency <= 2000; frequency += 500) {
+            setup_pwm(PWM_PIN, frequency, 0.5);  // Change frequency from 500 Hz to 2000 Hz at 50% duty cycle
+            sleep_ms(1000);  // Pause to observe each change
+        }
+
         // Read ADC (from analysis_and_monitoring.c)
         uint16_t raw_adc = adc_read();
         float voltage = raw_adc * 3.3f / (1 << 12);
