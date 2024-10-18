@@ -5,7 +5,7 @@
 #include "hardware/gpio.h"
 
 // Pin definitions
-#define PWM_PIN 0           // Pin for PWM output (from hello_pwm.c)
+#define PWM_PIN 0           // Pin for PWM outputs (from hello_pwm.c)
 #define PWM_INPUT_PIN 15     // Pin to read the PWM signal (from analysis_and_monitoring.c)
 #define ADC_PIN 26           // Pin for ADC input (from analysis_and_monitoring.c)
 
