@@ -137,33 +137,43 @@ generate_pwm_pulsewidth(PWM_PIN0, 100.0f, 1500.0f);  // 100 Hz, 1.5 ms pulse wid
   // Configure GPIO 15 to receive PWM input
     configure_pwm_input();
 
-    // Array of pulse widths (in microseconds)
+    // Arrays of pulse widths (in microseconds) and periods (in microseconds)
     float pulse_widths_us[] = {1000.0f, 1200.0f, 1500.0f, 1700.0f, 2000.0f};
-    int num_pulse_widths = sizeof(pulse_widths_us) / sizeof(pulse_widths_us[0]);
-// Set PWM frequency
-    float frequency = 100.0f;  // 100 Hz
+    float periods_us[] = {2000.0f, 2000.0f, 2000.0f, 2000.0f, 2000.0f};  // Periods of 10000 microsecond
 
-    int current_index = 0;  // Index for tracking which pulse width to use
+    int num_pulse_widths = sizeof(pulse_widths_us) / sizeof(pulse_widths_us[0]);
+    int num_periods = sizeof(periods_us) / sizeof(periods_us[0]);
+
+    int current_pulse_index = 0;  // Index for pulse width
+    int current_period_index = 0;  // Index for period
+// Set PWM frequency
+
     while (1) {
         
-       // Get the current pulse width in microseconds
-        float pulse_width_us = pulse_widths_us[current_index];
-        
-        // Generate PWM signal with the current pulse width
-        generate_pwm_pulsewidth(PWM_PIN0, frequency, pulse_width_us);
+     // Get the current pulse width and period
+        float pulse_width_us = pulse_widths_us[current_pulse_index];
+        float period_us = periods_us[current_period_index];
 
-        // Calculate the period in microseconds
-        float period_us = 1000000.0f / frequency;  // Period = 1 / frequency in seconds
+        // Generate PWM signal with the current pulse width and period
+        generate_pwm_pulsewidth(PWM_PIN0, period_us, pulse_width_us);
+
+        // Calculate the frequency based on the period
+        float frequency = 1000000.0f / period_us;  // Frequency in Hz
 
         // Calculate the duty cycle as a percentage
         float duty_cycle = (pulse_width_us / period_us) * 100.0f;
 
-        // Print the current pulse width, period, and duty cycle to the serial monitor
-        printf("PWM Signal: Frequency = %.2f Hz, Pulse Width = %.2f us, Period = %.2f us, Duty Cycle = %.2f%%\n",
-               frequency, pulse_width_us, period_us, duty_cycle);
+        // Print the current pulse width, period, duty cycle, and frequency to the serial monitor
+        printf("PWM Signal: Period = %.2f us, Frequency = %.2f Hz, Pulse Width = %.2f us, Duty Cycle = %.2f%%\n",
+               period_us, frequency, pulse_width_us, duty_cycle);
 
         // Move to the next pulse width in the array
-        current_index = (current_index + 1) % num_pulse_widths;  // Loop through the list of pulse widths
+        current_pulse_index = (current_pulse_index + 1) % num_pulse_widths;
+
+        // Move to the next period after all pulse widths are used
+        if (current_pulse_index == 0) {
+            current_period_index = (current_period_index + 1) % num_periods;
+        }
 
         // Delay for 500 ms
         sleep_ms(500);
