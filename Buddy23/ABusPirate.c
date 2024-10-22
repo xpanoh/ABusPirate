@@ -1,23 +1,20 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
 #include "hardware/pwm.h"
-#include "hardware/adc.h"
 #include "hardware/gpio.h"
 #include <stdint.h>
 
-// Pin definitions
+#define LED_PIN 0               // Pin for LED output (connected to PWM)
+#define BUTTON_PIN1 20          // Button 1 for 1st pulse width
+#define BUTTON_PIN2 21          // Button 2 for 2nd pulse width
+#define BUTTON_PIN3 22          // Button 3 for 3rd pulse width
 
-#define ADC_PIN 26           // Pin for ADC input (from analysis_and_monitoring.c)
-#define PWM_PIN0 0            // Pin for PWM output
-#define PWM_INPUT_PIN 15     // Pin for receiving PWM signal
+volatile bool button1_pressed = false; // Flag for button 1 press
+volatile bool button2_pressed = false; // Flag for button 2 press
+volatile bool button3_pressed = false; // Flag for button 3 press
 
-volatile uint32_t rising_edge_time = 0;  // Time of the rising edge
-volatile uint32_t falling_edge_time = 0; // Time of the falling edge
-volatile uint32_t pulse_width = 0;       // Pulse width in microseconds
-volatile uint32_t period = 0;            // Period of the PWM signal in microseconds
-volatile bool pwm_ready = false;         // Flag to indicate new PWM data is ready
-// Modified function to generate PWM based on pulse width (in microseconds)
-void generate_pwm_pulsewidth(uint gpio, float freq, float pulse_width_us) {
+// Function to generate a single PWM pulse based on pulse width (in microseconds)
+void generate_single_pwm_pulse(uint gpio, float freq, float pulse_width_us) {
     // Set the GPIO function to PWM
     gpio_set_function(gpio, GPIO_FUNC_PWM);
 
@@ -55,123 +52,81 @@ void generate_pwm_pulsewidth(uint gpio, float freq, float pulse_width_us) {
 
     // Enable the PWM output
     pwm_set_enabled(slice_num, true);
+
+    // Delay to allow the pulse to be emitted
+    sleep_us(pulse_width_us);
+
+    // Disable the PWM output after the pulse
+    pwm_set_enabled(slice_num, false);
 }
 
-
-// Function to capture rising and falling edges of the PWM signal
-void gpio_callback(uint gpio, uint32_t events) {
-    uint32_t current_time = time_us_32();  // Get the current time in microseconds
-
-    if (events & GPIO_IRQ_EDGE_RISE) {
-        // On rising edge, calculate the period (time between rising edges)
-        period = current_time - rising_edge_time;
-        rising_edge_time = current_time;   // Store the rising edge timestamp
+// Button press interrupt handler
+void button_callback(uint gpio, uint32_t events) {
+    if (gpio == BUTTON_PIN1 && (events & GPIO_IRQ_EDGE_FALL)) {
+        button1_pressed = true; // Set flag for button 1
+    } else if (gpio == BUTTON_PIN2 && (events & GPIO_IRQ_EDGE_FALL)) {
+        button2_pressed = true; // Set flag for button 2
+    } else if (gpio == BUTTON_PIN3 && (events & GPIO_IRQ_EDGE_FALL)) {
+        button3_pressed = true; // Set flag for button 3
     }
-
-    if (events & GPIO_IRQ_EDGE_FALL) {
-        falling_edge_time = current_time;  // Store the falling edge timestamp
-        pulse_width = falling_edge_time - rising_edge_time;  // Calculate the pulse width (high time)
-        pwm_ready = true;  // Set flag to indicate new PWM data is ready
-    }
-}
-// Function to configure the PWM input pin (GP15)
-void configure_pwm_input() {
-    gpio_init(PWM_INPUT_PIN);  // Initialize GPIO
-    gpio_set_dir(PWM_INPUT_PIN, GPIO_IN);  // Set as input
-    gpio_pull_down(PWM_INPUT_PIN);  // Pull down the pin by default
-
-    // Set interrupts on rising and falling edges
-    gpio_set_irq_enabled_with_callback(PWM_INPUT_PIN, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback);
 }
 
-// Function to set up the PWM
-void generate_pwm(uint gpio, float freq, float duty_cycle) {
-    // Set the GPIO function to PWM
-    gpio_set_function(gpio, GPIO_FUNC_PWM);
+// Function to configure the button input pins
+void configure_buttons() {
+    // Initialize buttons and set pull-up resistors
+    gpio_init(BUTTON_PIN1);
+    gpio_set_dir(BUTTON_PIN1, GPIO_IN);
+    gpio_pull_up(BUTTON_PIN1);
 
-    // Find out which PWM slice is connected to the specified GPIO
-    uint slice_num = pwm_gpio_to_slice_num(gpio);
+    gpio_init(BUTTON_PIN2);
+    gpio_set_dir(BUTTON_PIN2, GPIO_IN);
+    gpio_pull_up(BUTTON_PIN2);
 
-    // Calculate the clock divider and set the PWM frequency
-    float clock_freq = 125000000.0f;  // Default Pico clock frequency in Hz
-    float divider = clock_freq / (freq * 65536.0f);  // Compute divider for given frequency
+    gpio_init(BUTTON_PIN3);
+    gpio_set_dir(BUTTON_PIN3, GPIO_IN);
+    gpio_pull_up(BUTTON_PIN3);
 
-    // Ensure the divider is within valid range (1.0 to 255.0)
-    if (divider < 1.0f) {
-        divider = 1.0f;
-    } else if (divider > 255.0f) {
-        divider = 255.0f;
-    }
-
-    // Set the PWM clock divider
-    pwm_set_clkdiv(slice_num, divider);
-
-    // Set the PWM wrap value (maximum count value for 16-bit resolution)
-    pwm_set_wrap(slice_num, 65535);
-
-    // Set the duty cycle (scaled to 16-bit resolution)
-    pwm_set_gpio_level(gpio, (uint16_t)(duty_cycle * 65535.0f));
-
-    // Enable the PWM output
-    pwm_set_enabled(slice_num, true);
-}
-
-// Function to configure the ADC (from analysis_and_monitoring.c)
-void configure_adc() {
-    adc_init();
-    adc_gpio_init(ADC_PIN);
-    adc_select_input(0);
+    // Set interrupts on falling edges for each button
+    gpio_set_irq_enabled_with_callback(BUTTON_PIN1, GPIO_IRQ_EDGE_FALL, true, &button_callback);
+    gpio_set_irq_enabled_with_callback(BUTTON_PIN2, GPIO_IRQ_EDGE_FALL, true, &button_callback);
+    gpio_set_irq_enabled_with_callback(BUTTON_PIN3, GPIO_IRQ_EDGE_FALL, true, &button_callback);
 }
 
 int main() {
-   
     stdio_init_all();
 
-    // Configure PWM
-    // Set up PWM on GPIO0
-    //generate_pwm(PWM_PIN0, 100.0f, 0.1f);  // 100 Hz frequency, 50% duty cycle
-generate_pwm_pulsewidth(PWM_PIN0, 100.0f, 1500.0f);  // 100 Hz, 1.5 ms pulse width
+    // Configure the buttons for input
+    configure_buttons();
 
-    // Configure ADC (from analysis_and_monitoring.c)
-    configure_adc();
-  // Configure GPIO 15 to receive PWM input
-    configure_pwm_input();
+    // Define pulse widths for each button
+    float pulse_width1_us = 500.0f;   // 0.5 ms for button 1
+    float pulse_width2_us = 1000.0f;  // 1 ms for button 2
+    float pulse_width3_us = 1500.0f;  // 1.5 ms for button 3
 
-    // Array of pulse widths (in microseconds)
-    float pulse_widths_us[] = {1000.0f, 1200.0f, 1500.0f, 1700.0f, 2000.0f};
-    int num_pulse_widths = sizeof(pulse_widths_us) / sizeof(pulse_widths_us[0]);
-// Set PWM frequency
-    float frequency = 100.0f;  // 100 Hz
+    float frequency = 100.0f;  // Set the PWM frequency to 100 Hz
 
-    int current_index = 0;  // Index for tracking which pulse width to use
     while (1) {
-        
-       // Get the current pulse width in microseconds
-        float pulse_width_us = pulse_widths_us[current_index];
-        
-        // Generate PWM signal with the current pulse width
-        generate_pwm_pulsewidth(PWM_PIN0, frequency, pulse_width_us);
+        // Check if button 1 was pressed
+        if (button1_pressed) {
+            printf("Button 1 pressed! Generating pulse: %.2f us\n", pulse_width1_us);
+            generate_single_pwm_pulse(LED_PIN, frequency, pulse_width1_us);
+            button1_pressed = false; // Reset the flag
+        }
 
-        // Calculate the period in microseconds
-        float period_us = 1000000.0f / frequency;  // Period = 1 / frequency in seconds
+        // Check if button 2 was pressed
+        if (button2_pressed) {
+            printf("Button 2 pressed! Generating pulse: %.2f us\n", pulse_width2_us);
+            generate_single_pwm_pulse(LED_PIN, frequency, pulse_width2_us);
+            button2_pressed = false; // Reset the flag
+        }
 
-        // Calculate the duty cycle as a percentage
-        float duty_cycle = (pulse_width_us / period_us) * 100.0f;
+        // Check if button 3 was pressed
+        if (button3_pressed) {
+            printf("Button 3 pressed! Generating pulse: %.2f us\n", pulse_width3_us);
+            generate_single_pwm_pulse(LED_PIN, frequency, pulse_width3_us);
+            button3_pressed = false; // Reset the flag
+        }
 
-        // Print the current pulse width, period, and duty cycle to the serial monitor
-        printf("PWM Signal: Frequency = %.2f Hz, Pulse Width = %.2f us, Period = %.2f us, Duty Cycle = %.2f%%\n",
-               frequency, pulse_width_us, period_us, duty_cycle);
-
-        // Move to the next pulse width in the array
-        current_index = (current_index + 1) % num_pulse_widths;  // Loop through the list of pulse widths
-
-        // Delay for 500 ms
-        sleep_ms(500);
-
-        // Read ADC (from analysis_and_monitoring.c)
-        uint16_t raw_adc = adc_read();
-        float voltage = raw_adc * 3.3f / (1 << 12);
-        printf("ADC Value: %d, Voltage: %.2fV\n", raw_adc, voltage);
-        sleep_ms(500);
+        sleep_ms(100); // Small delay to avoid CPU overload
     }
 }
