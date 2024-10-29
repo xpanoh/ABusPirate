@@ -11,16 +11,10 @@
 #define PWM_PIN0 0            // Pin for PWM output
 #define PWM_INPUT_PIN 15     // Pin for receiving PWM signal
 
-#define UART_ID uart1          // Use UART1 (GPIO 4 and GPIO 5)
-#define UART_TX_PIN 4          // GPIO for UART TX (Transmit)
-#define UART_RX_PIN 5          // GPIO for UART RX (Receive) for testing
 
 
-//For UART BuardRate Dectection
-volatile uint32_t start_bit_time = 0;
-volatile uint32_t stop_bit_time = 0;
-volatile bool baud_rate_ready = false;
-volatile float detected_baud_rate = 0;
+
+
 
 volatile uint32_t rising_edge_time = 0;  // Time of the rising edge
 volatile uint32_t falling_edge_time = 0; // Time of the falling edge
@@ -29,53 +23,8 @@ volatile uint32_t period = 0;            // Period of the PWM signal in microsec
 volatile bool pwm_ready = false;         // Flag to indicate new PWM data is ready
 
 
-// Function to initialize and send data at a specified baud rate
-void send_uart_data_at_baudrate(const char *data, uint32_t baud_rate) {
-    // Initialize UART with the specified baud rate
-    uart_init(UART_ID, baud_rate);
 
-    // Configure UART TX and RX pins
-    gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);
-    gpio_set_function(UART_RX_PIN, GPIO_FUNC_UART);
 
-    // Send data byte by byte
-    for (int i = 0; data[i] != '\0'; i++) {
-        uart_putc(UART_ID, data[i]);  // Send each character over UART
-    }
-
-    // Optionally, add a newline at the end
-    uart_putc(UART_ID, '\n');
-}
-// GPIO interrupt callback function to measure baud rate
-void uart_baud_rate_callback(uint gpio, uint32_t events) {
-    uint32_t current_time = time_us_32();  // Get current time in microseconds
-
-    if (events & GPIO_IRQ_EDGE_FALL) {  // Falling edge (start bit)
-        start_bit_time = current_time;
-        printf("Falling edge detected at time: %u us\n", start_bit_time);
-    }
-    if (events & GPIO_IRQ_EDGE_RISE) {  // Rising edge (stop bit)
-        stop_bit_time = current_time;
-        printf("Rising edge detected at time: %u us\n", stop_bit_time);
-
-        // Calculate baud rate based on the start and stop bit times
-        uint32_t bit_duration = stop_bit_time - start_bit_time;
-        if (bit_duration > 0) {  // Avoid division by zero
-            detected_baud_rate = 1000000.0f / bit_duration;  // Baud rate in bits per second (bps)
-            baud_rate_ready = true;
-        }
-    }
-}
-
-// Function to configure GPIO interrupt for UART signal on pin 4
-void configure_uart_baud_detection() {
-    gpio_init(UART_RX_PIN);
-    gpio_set_dir(UART_RX_PIN, GPIO_IN);  // Set as input
-    gpio_pull_up(UART_RX_PIN);  // Pull-up resistor for idle high on UART RX
-
-    // Set interrupt on rising and falling edges
-    gpio_set_irq_enabled_with_callback(UART_RX_PIN, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &uart_baud_rate_callback);
-}
 
 
 // Modified function to generate PWM based on pulse width (in microseconds)
@@ -117,7 +66,7 @@ void generate_pwm_pulsewidth(uint gpio, float *high_times_us, float *low_times_u
         printf("PWM Signal: High Time = %.2f us, Low Time = %.2f us, Period = %.2f us, Frequency = %.2f Hz, Duty Cycle = %.2f%%\n",
                high_times_us[i], low_times_us[i], period_us, freq, duty_cycle * 100.0f);
  // Wait before switching to the next pulse
-        sleep_ms(500);
+        sleep_ms(5000);
         
     }
 
@@ -191,16 +140,7 @@ void configure_adc() {
 }
 
 int main() {
-   
     stdio_init_all();
-   // Example usage of the function with a baud rate of 9600
-    const char *message = "Hello, UART!";
-    uint32_t baud_rate = 9600;
-    // Configure UART RX pin interrupt for baud rate detection
-    configure_uart_baud_detection();
-  
-
-
     // Configure ADC (from analysis_and_monitoring.c)
     configure_adc();
   // Configure GPIO 15 to receive PWM input
@@ -211,13 +151,6 @@ int main() {
     float low_times_us[] =  {1000.0f,  800.0f,  500.0f,  300.0f,  500.0f,  700.0f,  900.0f,  600.0f,  800.0f,  700.0f};
     int num_pulses = sizeof(high_times_us) / sizeof(high_times_us[0]);  // Number of pulses to generate
 while (1) {
-            send_uart_data_at_baudrate(message, baud_rate);
-if (baud_rate_ready) {
-            // Print detected baud rate
-            printf("Detected Baud Rate: %.2f bps\n", detected_baud_rate);
-            baud_rate_ready = false;  // Reset flag for next measurement
-        }
-
 // Generate PWM signals with arrays of high and low times
     generate_pwm_pulsewidth(PWM_PIN0, high_times_us, low_times_us, num_pulses);
 
