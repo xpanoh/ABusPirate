@@ -10,8 +10,8 @@
 #define ADC_PIN 26           // Pin for ADC input (from analysis_and_monitoring.c)
 #define PWM_PIN0 0            // Pin for PWM output
 #define PWM_INPUT_PIN 15     // Pin for receiving PWM signal
-
-
+#define UART_TX_PIN 5    // UART1 TX pin (GP5)
+#define UART_RX_PIN 4     // UART1 RX pin (GP4)
 
 
 
@@ -27,6 +27,15 @@ volatile bool pwm_ready = false;         // Flag to indicate new PWM data is rea
 
 
 
+
+void setup_uart() {
+    // Initialize UART1
+    uart_init(uart1, 9600); // Baud rate 115200
+    // Set UART1 TX pin (GP3)
+    gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);
+    // Set UART1 RX pin (GP4)
+    gpio_set_function(UART_RX_PIN, GPIO_FUNC_UART);
+}
 // Modified function to generate PWM based on pulse width (in microseconds)
 // Modified function to generate PWM based on high and low times (in microseconds)
 // Modified function to generate PWM based on arrays of high and low times (in microseconds)
@@ -63,10 +72,9 @@ void generate_pwm_pulsewidth(uint gpio, float *high_times_us, float *low_times_u
         pwm_set_enabled(slice_num, true);
 
         // Print PWM parameters
-        printf("PWM Signal: High Time = %.2f us, Low Time = %.2f us, Period = %.2f us, Frequency = %.2f Hz, Duty Cycle = %.2f%%\n",
-               high_times_us[i], low_times_us[i], period_us, freq, duty_cycle * 100.0f);
+      /* printf("PWM Signal: High Time = %.2f us, Low Time = %.2f us, Period = %.2f us, Frequency = %.2f Hz, Duty Cycle = %.2f%%\n",
+               high_times_us[i], low_times_us[i], period_us, freq, duty_cycle * 100.0f); */  
  // Wait before switching to the next pulse
-        sleep_ms(5000);
         
     }
 
@@ -145,21 +153,36 @@ int main() {
     configure_adc();
   // Configure GPIO 15 to receive PWM input
     configure_pwm_input();
-
+   // Set up UART1
+    setup_uart();
+    printf("UART initialized on pins %d (TX) and %d (RX)\n", UART_TX_PIN, UART_RX_PIN);
     // Arrays of pulse widths (in microseconds) and periods (in microseconds)
     float high_times_us[] = {1000.0f, 1200.0f, 1500.0f, 1700.0f, 2000.0f, 1800.0f, 1600.0f, 1400.0f, 1100.0f, 1300.0f};
     float low_times_us[] =  {1000.0f,  800.0f,  500.0f,  300.0f,  500.0f,  700.0f,  900.0f,  600.0f,  800.0f,  700.0f};
     int num_pulses = sizeof(high_times_us) / sizeof(high_times_us[0]);  // Number of pulses to generate
-while (1) {
-// Generate PWM signals with arrays of high and low times
-    generate_pwm_pulsewidth(PWM_PIN0, high_times_us, low_times_us, num_pulses);
 
+
+while (1) {
+        // Generate PWM signals with arrays of high and low times
+        generate_pwm_pulsewidth(PWM_PIN0, high_times_us, low_times_us, num_pulses);
+
+uart_putc(uart1, 'A');
+    sleep_ms(10);  // Delay to ensure stability
+
+    if (uart_is_readable(uart1)) {
+        char received = uart_getc(uart1);
+        printf("Received: %c\n", received);
+    } else {
+        printf("No data available on UART RX\n");
+    }
+    sleep_ms(1000);  // Adjust as needed
+}
         // Read ADC (from analysis_and_monitoring.c)
         uint16_t raw_adc = adc_read();
         float voltage = raw_adc * 3.3f / (1 << 12);
         printf("ADC Value: %d, Voltage: %.2fV\n", raw_adc, voltage);
+          // Send a message over UART at the detected or specified baud rate
+      
 }
 
   
-    return 0;
-}
