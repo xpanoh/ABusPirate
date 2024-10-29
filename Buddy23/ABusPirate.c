@@ -18,45 +18,48 @@ volatile uint32_t period = 0;            // Period of the PWM signal in microsec
 volatile bool pwm_ready = false;         // Flag to indicate new PWM data is ready
 // Modified function to generate PWM based on pulse width (in microseconds)
 // Modified function to generate PWM based on high and low times (in microseconds)
-void generate_pwm_pulsewidth(uint gpio, float high_time_us, float low_time_us) {
+// Modified function to generate PWM based on arrays of high and low times (in microseconds)
+void generate_pwm_pulsewidth(uint gpio, float *high_times_us, float *low_times_us, int num_pulses) {
     // Set the GPIO function to PWM
     gpio_set_function(gpio, GPIO_FUNC_PWM);
 
     // Find out which PWM slice is connected to the specified GPIO
     uint slice_num = pwm_gpio_to_slice_num(gpio);
 
-    // Calculate the clock divider and set the PWM frequency
-    float clock_freq = 125000000.0f;  // Default Pico clock frequency in Hz
-    float period_us = high_time_us + low_time_us;  // Total period in microseconds
-    float freq = 1000000.0f / period_us;           // Frequency in Hz
-    float divider = clock_freq / (freq * 65536.0f);  // Compute divider for given frequency
+    // Set up each pulse using the high and low times arrays
+    for (int i = 0; i < num_pulses; i++) {
+        // Calculate period and frequency for each pulse
+        float period_us = high_times_us[i] + low_times_us[i];
+        float freq = 1000000.0f / period_us;
+        float clock_freq = 125000000.0f;  // Default Pico clock frequency in Hz
+        float divider = clock_freq / (freq * 65536.0f);
 
-    // Ensure the divider is within valid range (1.0 to 255.0)
-    if (divider < 1.0f) {
-        divider = 1.0f;
-    } else if (divider > 255.0f) {
-        divider = 255.0f;
+        // Ensure the divider is within valid range
+        if (divider < 1.0f) divider = 1.0f;
+        else if (divider > 255.0f) divider = 255.0f;
+
+        // Set PWM clock divider
+        pwm_set_clkdiv(slice_num, divider);
+
+        // Set PWM wrap value
+        pwm_set_wrap(slice_num, 65535);
+
+        // Calculate and set duty cycle
+        float duty_cycle = high_times_us[i] / period_us;
+        pwm_set_gpio_level(gpio, (uint16_t)(duty_cycle * 65535.0f));
+
+        // Enable PWM output
+        pwm_set_enabled(slice_num, true);
+
+        // Print PWM parameters
+        printf("PWM Signal: High Time = %.2f us, Low Time = %.2f us, Period = %.2f us, Frequency = %.2f Hz, Duty Cycle = %.2f%%\n",
+               high_times_us[i], low_times_us[i], period_us, freq, duty_cycle * 100.0f);
+
+        
     }
 
-    // Set the PWM clock divider
-    pwm_set_clkdiv(slice_num, divider);
-
-    // Set the PWM wrap value (maximum count value for 16-bit resolution)
-    pwm_set_wrap(slice_num, 65535);
-
-    // Calculate the duty cycle based on the high and low times
-    float duty_cycle = high_time_us / period_us;  // Duty cycle as a fraction
-
-    // Ensure the duty cycle does not exceed 100%
-    if (duty_cycle > 1.0f) {
-        duty_cycle = 1.0f;
-    }
-
-    // Set the duty cycle (scaled to 16-bit resolution)
-    pwm_set_gpio_level(gpio, (uint16_t)(duty_cycle * 65535.0f));
-
-    // Enable the PWM output
-    pwm_set_enabled(slice_num, true);
+    // Disable PWM output after completing the pulses
+    pwm_set_enabled(slice_num, false);
 }
 
 // Function to capture rising and falling edges of the PWM signal
@@ -139,35 +142,16 @@ int main() {
     float high_times_us[] = {1000.0f, 1200.0f, 1500.0f, 1700.0f, 2000.0f, 1800.0f, 1600.0f, 1400.0f, 1100.0f, 1300.0f};
     float low_times_us[] =  {1000.0f,  800.0f,  500.0f,  300.0f,  500.0f,  700.0f,  900.0f,  600.0f,  800.0f,  700.0f};
     int num_pulses = sizeof(high_times_us) / sizeof(high_times_us[0]);  // Number of pulses to generate
-
-
-  
-// Set PWM frequency
-for (int i = 0; i < num_pulses; i++) {
-            sleep_ms(5000);
-
-        // Get the current high and low times
-        float high_time_us = high_times_us[i];
-        float low_time_us = low_times_us[i];
-
-        // Generate PWM signal with the current high and low times
-        generate_pwm_pulsewidth(PWM_PIN0, high_time_us, low_time_us);
-
-        // Calculate the period and frequency based on high and low times
-        float period_us = high_time_us + low_time_us;
-        float frequency = 1000000.0f / period_us;  // Frequency in Hz
-
-        // Calculate the duty cycle as a percentage
-        float duty_cycle = (high_time_us / period_us) * 100.0f;
-
-        // Print the current high, low times, duty cycle, and frequency to the serial monitor
-        printf("PWM Signal: High Time = %.2f us, Low Time = %.2f us, Period = %.2f us, Frequency = %.2f Hz, Duty Cycle = %.2f%%\n",
-               high_time_us, low_time_us, period_us, frequency, duty_cycle);
+while (1) {
+// Generate PWM signals with arrays of high and low times
+    generate_pwm_pulsewidth(PWM_PIN0, high_times_us, low_times_us, num_pulses);
 
         // Read ADC (from analysis_and_monitoring.c)
         uint16_t raw_adc = adc_read();
         float voltage = raw_adc * 3.3f / (1 << 12);
         printf("ADC Value: %d, Voltage: %.2fV\n", raw_adc, voltage);
-    
 }
+
+  
+    return 0;
 }
