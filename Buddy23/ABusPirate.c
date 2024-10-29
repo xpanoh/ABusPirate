@@ -54,7 +54,8 @@ void generate_pwm_pulsewidth(uint gpio, float *high_times_us, float *low_times_u
         // Print PWM parameters
         printf("PWM Signal: High Time = %.2f us, Low Time = %.2f us, Period = %.2f us, Frequency = %.2f Hz, Duty Cycle = %.2f%%\n",
                high_times_us[i], low_times_us[i], period_us, freq, duty_cycle * 100.0f);
-
+ // Wait before switching to the next pulse
+        sleep_ms(500);
         
     }
 
