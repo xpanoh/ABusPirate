@@ -13,23 +13,14 @@
 #define UART_TX_PIN 5    // UART1 TX pin (GP5)
 #define UART_RX_PIN 4     // UART1 RX pin (GP4)
 
-
-
-
 volatile uint32_t rising_edge_time = 0;  // Time of the rising edge
 volatile uint32_t falling_edge_time = 0; // Time of the falling edge
 volatile uint32_t pulse_width = 0;       // Pulse width in microseconds
 volatile uint32_t period = 0;            // Period of the PWM signal in microseconds
 
-
-
-
-
-
-
 void setup_uart() {
     // Initialize UART1
-    uart_init(uart1, 9600); // Baud rate 115200
+    uart_init(uart1, 9600); // Baud rate of 9600
     // Set UART1 TX pin (GP3)
     gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);
     // Set UART1 RX pin (GP4)
@@ -77,8 +68,6 @@ void generate_pwm_pulsewidth(uint gpio, float *high_times_us, float *low_times_u
         pwm_set_enabled(slice_num, false);
     }
 }
-
-
 
 // Callback function to capture rising and falling edges on PWM_INPUT_PIN
 void gpio_callback(uint gpio, uint32_t events) {
@@ -198,5 +187,3 @@ uart_putc(uart1, 'A');
           // Send a message over UART at the detected or specified baud rate
       
 }
-
-  
