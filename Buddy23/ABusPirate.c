@@ -163,7 +163,7 @@ int main() {
 
 while (1) {
           // Check if new PWM data is ready
-        if (pwm_ready) {
+       
             // Ensure period is not zero to avoid division by zero errors
             if (period > 0) {
             float frequency = 1000000.0f / period;  // Calculate frequency in Hz
@@ -177,8 +177,7 @@ while (1) {
             sleep_ms(500); // Delay for readability; adjust as needed
         }
 
-            pwm_ready = false;  // Reset flag
-        }
+        
 
 uart_putc(uart1, 'A');
     sleep_ms(10);  // Delay to ensure stability

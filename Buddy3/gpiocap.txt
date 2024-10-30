@@ -1,0 +1,59 @@
+#include "pico/stdlib.h"
+#include "hardware/gpio.h"
+#include "hardware/timer.h"
+#include <stdio.h>
+
+volatile uint32_t rising_edge_time = 0;
+volatile uint32_t falling_edge_time = 0;
+volatile uint32_t pulse_width_high = 0;
+volatile uint32_t pulse_width_low = 0;
+volatile bool pulse_captured = false;
+
+// Interrupt handler to capture pulse widths on GPIO 0
+void gpio_callback(uint gpio, uint32_t events) {
+    uint32_t current_time = time_us_32();
+
+    if (events & GPIO_IRQ_EDGE_RISE) {
+        // Rising edge detected - end of low pulse, start of high pulse
+        if (falling_edge_time != 0) {
+            pulse_width_low = current_time - falling_edge_time;
+        }
+        rising_edge_time = current_time;
+    }
+    if (events & GPIO_IRQ_EDGE_FALL) {
+        // Falling edge detected - end of high pulse, start of low pulse
+        pulse_width_high = current_time - rising_edge_time;
+        falling_edge_time = current_time;
+        pulse_captured = true;
+    }
+}
+
+int main() {
+    stdio_init_all();
+
+    const uint gpio_input = 0;
+
+    // Initialize GPIO 0 as input with pull-down resistor for pulse capturing
+    gpio_init(gpio_input);
+    gpio_set_dir(gpio_input, GPIO_IN);
+    gpio_pull_down(gpio_input);
+
+    // Set up interrupts for both rising and falling edges on GPIO 0
+    gpio_set_irq_enabled_with_callback(gpio_input, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback);
+
+    while (true) {
+        // Check if a pulse has been captured on GPIO 0
+        if (pulse_captured) {
+            printf("High pulse width: %u us\n", pulse_width_high);
+            printf("Low pulse width: %u us\n", pulse_width_low);
+
+            // Reset the captured flag for the next pulse
+            pulse_captured = false;
+        }
+
+        // Optional delay to prevent the loop from running too fast
+        sleep_ms(100);
+    }
+
+    return 0;
+}
