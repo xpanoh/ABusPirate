@@ -20,7 +20,6 @@ volatile uint32_t rising_edge_time = 0;  // Time of the rising edge
 volatile uint32_t falling_edge_time = 0; // Time of the falling edge
 volatile uint32_t pulse_width = 0;       // Pulse width in microseconds
 volatile uint32_t period = 0;            // Period of the PWM signal in microseconds
-volatile bool pwm_ready = false;         // Flag to indicate new PWM data is ready
 
 
 
@@ -80,31 +79,27 @@ void generate_pwm_pulsewidth(uint gpio, float *high_times_us, float *low_times_u
 }
 
 
-// Function to capture rising and falling edges of the PWM signal
+
+// Callback function to capture rising and falling edges on PWM_INPUT_PIN
 void gpio_callback(uint gpio, uint32_t events) {
-    uint32_t current_time = time_us_32();  // Get the current time in microseconds
+    uint32_t current_time = time_us_32();
 
     if (events & GPIO_IRQ_EDGE_RISE) {
-        // On rising edge, calculate the period (time between rising edges)
-        period = current_time - rising_edge_time;
-        rising_edge_time = current_time;   // Store the rising edge timestamp
-        pwm_ready = true;  // Set flag to indicate new PWM data is ready (starts automatically)
+        period = current_time - rising_edge_time; // Calculate period
+        rising_edge_time = current_time;
     }
 
     if (events & GPIO_IRQ_EDGE_FALL) {
-        falling_edge_time = current_time;  // Store the falling edge timestamp
-        pulse_width = falling_edge_time - rising_edge_time;  // Calculate the pulse width (high time)
-        pwm_ready = true;  // Set flag to indicate new PWM data is ready (starts automatically)
+        falling_edge_time = current_time;
+        pulse_width = falling_edge_time - rising_edge_time; // Calculate pulse width
     }
 }
 
-// Function to configure the PWM input pin (GP15)
+// Function to configure PWM input pin for measurement
 void configure_pwm_input() {
-    gpio_init(PWM_INPUT_PIN);  // Initialize GPIO
-    gpio_set_dir(PWM_INPUT_PIN, GPIO_IN);  // Set as input
-    gpio_pull_down(PWM_INPUT_PIN);  // Pull down the pin by default
-
-    // Set interrupts on rising and falling edges
+    gpio_init(PWM_INPUT_PIN);
+    gpio_set_dir(PWM_INPUT_PIN, GPIO_IN);
+    gpio_pull_down(PWM_INPUT_PIN);
     gpio_set_irq_enabled_with_callback(PWM_INPUT_PIN, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback);
 }
 
@@ -171,21 +166,16 @@ while (1) {
         if (pwm_ready) {
             // Ensure period is not zero to avoid division by zero errors
             if (period > 0) {
-                // Calculate frequency in Hz
-                float frequency = 1000000.0f / period;  // Frequency in Hz (1/period in seconds)
-                
-                // Calculate duty cycle as a percentage
-                float duty_cycle = ((float)pulse_width / period) * 100.0f;
+            float frequency = 1000000.0f / period;  // Calculate frequency in Hz
+            float duty_cycle = ((float)pulse_width / period) * 100.0f;
+            if (duty_cycle > 100.0f) duty_cycle = 100.0f; // Clamp duty cycle
 
-                // Make sure the duty cycle does not exceed 100%
-                if (duty_cycle > 100.0f) {
-                    duty_cycle = 100.0f;
-                }
+            // Print results to the serial monitor
+            printf("Pulse Width: %u us, Period: %u us, Frequency: %.2f Hz, Duty Cycle: %.2f%%\n",
+                   pulse_width, period, frequency, duty_cycle);
 
-                // Print results to the serial monitor
-                printf("Pulse Width: %u us, Period: %u us, Frequency: %.2f Hz, Duty Cycle: %.2f%%\n",
-                       pulse_width, period, frequency, duty_cycle);
-            }
+            sleep_ms(500); // Delay for readability; adjust as needed
+        }
 
             pwm_ready = false;  // Reset flag
         }
