@@ -71,16 +71,14 @@ void generate_pwm_pulsewidth(uint gpio, float *high_times_us, float *low_times_u
         // Enable PWM output
         pwm_set_enabled(slice_num, true);
 
-        // Print PWM parameters
-      /* printf("PWM Signal: High Time = %.2f us, Low Time = %.2f us, Period = %.2f us, Frequency = %.2f Hz, Duty Cycle = %.2f%%\n",
-               high_times_us[i], low_times_us[i], period_us, freq, duty_cycle * 100.0f); */  
- // Wait before switching to the next pulse
-        
-    }
+        // Introduce a delay for each pulse to complete
+        sleep_us((int)period_us);
 
-    // Disable PWM output after completing the pulses
-    pwm_set_enabled(slice_num, false);
+        // Disable PWM output after each pulse (optional if generating multiple pulses)
+        pwm_set_enabled(slice_num, false);
+    }
 }
+
 
 // Function to capture rising and falling edges of the PWM signal
 void gpio_callback(uint gpio, uint32_t events) {
@@ -90,14 +88,16 @@ void gpio_callback(uint gpio, uint32_t events) {
         // On rising edge, calculate the period (time between rising edges)
         period = current_time - rising_edge_time;
         rising_edge_time = current_time;   // Store the rising edge timestamp
+        pwm_ready = true;  // Set flag to indicate new PWM data is ready (starts automatically)
     }
 
     if (events & GPIO_IRQ_EDGE_FALL) {
         falling_edge_time = current_time;  // Store the falling edge timestamp
         pulse_width = falling_edge_time - rising_edge_time;  // Calculate the pulse width (high time)
-        pwm_ready = true;  // Set flag to indicate new PWM data is ready
+        pwm_ready = true;  // Set flag to indicate new PWM data is ready (starts automatically)
     }
 }
+
 // Function to configure the PWM input pin (GP15)
 void configure_pwm_input() {
     gpio_init(PWM_INPUT_PIN);  // Initialize GPIO
@@ -161,10 +161,34 @@ int main() {
     float low_times_us[] =  {1000.0f,  800.0f,  500.0f,  300.0f,  500.0f,  700.0f,  900.0f,  600.0f,  800.0f,  700.0f};
     int num_pulses = sizeof(high_times_us) / sizeof(high_times_us[0]);  // Number of pulses to generate
 
+       // generate_pwm(PWM_PIN0, 100.0f, 0.1f);  // 100 Hz frequency, 50% duty cycle
+
+        // Generate custom PWM signals with arrays of high and low times
+        generate_pwm_pulsewidth(PWM_PIN0, high_times_us, low_times_us, num_pulses);
 
 while (1) {
-        // Generate PWM signals with arrays of high and low times
-        generate_pwm_pulsewidth(PWM_PIN0, high_times_us, low_times_us, num_pulses);
+          // Check if new PWM data is ready
+        if (pwm_ready) {
+            // Ensure period is not zero to avoid division by zero errors
+            if (period > 0) {
+                // Calculate frequency in Hz
+                float frequency = 1000000.0f / period;  // Frequency in Hz (1/period in seconds)
+                
+                // Calculate duty cycle as a percentage
+                float duty_cycle = ((float)pulse_width / period) * 100.0f;
+
+                // Make sure the duty cycle does not exceed 100%
+                if (duty_cycle > 100.0f) {
+                    duty_cycle = 100.0f;
+                }
+
+                // Print results to the serial monitor
+                printf("Pulse Width: %u us, Period: %u us, Frequency: %.2f Hz, Duty Cycle: %.2f%%\n",
+                       pulse_width, period, frequency, duty_cycle);
+            }
+
+            pwm_ready = false;  // Reset flag
+        }
 
 uart_putc(uart1, 'A');
     sleep_ms(10);  // Delay to ensure stability
