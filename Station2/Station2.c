@@ -9,7 +9,7 @@
 
 // Pin definitions
 #define ADC_PIN 26              // Pin for ADC input
-#define PWM_INPUT_PIN 27         // Pin for PWM signal input to analyze
+#define PWM_INPUT_PIN 7         // Pin for PWM signal input to analyze
 #define UART_RX_PIN 4           // UART1 RX pin (GP4)
 
 // FFT settings
