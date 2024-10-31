@@ -11,6 +11,10 @@ Station2.c
 # Pull in common dependencies and additional hardware support
 target_link_libraries(Station2 pico_stdlib hardware_pwm hardware_adc hardware_timer)
 
+file(GLOB KISSFFT_SOURCES "lib/kissfft/*.c")
+target_sources(Station2 PRIVATE ${KISSFFT_SOURCES})
+target_include_directories(Station2 PRIVATE lib/kissfft)
+
 # Create map/bin/hex file etc.
 pico_add_extra_outputs(Station2)
 
