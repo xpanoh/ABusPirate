@@ -10,28 +10,43 @@
 // Pin definitions
 #define ADC_PIN 26              // Pin for ADC input
 #define PWM_INPUT_PIN 7         // Pin for PWM signal input to analyze
-#define UART_RX_PIN 4           // UART1 RX pin (GP4)
+#define UART_RX_PIN 4           // UART1 receiving RX pin (GP4)
+#define BUTTON_PIN 20           // Pin for button to initiate baud rate detection
+#define TOLERANCE_PERCENT 5      // Tolerance as a percentage of the expected duration
 
-// FFT settings
+// Fast Fourier Transform (FFT) settings
 #define NFFT 256                // Number of FFT points, must be a power of 2
 #define SAMPLING_FREQUENCY 1000 // Sampling frequency in Hz
 
-// Global Variables for PWM capture
-volatile uint32_t rising_edge_time = 0;  // Time of the rising edge for PWM input
-volatile uint32_t falling_edge_time = 0; // Time of the falling edge for PWM input
-volatile uint32_t pulse_width = 0;       // Pulse width in microseconds for PWM input
-volatile uint32_t period = 0;            // Period of the PWM signal in microseconds
-volatile bool pwm_ready = false;         // Flag for new PWM measurement ready
+// Define standard baud rates and their expected bit durations
+typedef struct {
+    uint32_t baud_rate;
+    uint32_t expected_duration; // Expected bit duration in microseconds
+} BaudRateInfo;
 
-// Variables for UART baud rate measurement
-volatile bool uart_start_bit_detected = false; // Flag for detecting start bit
+BaudRateInfo baud_rates[] = {
+    {4800, 208}, {9600, 104}, {19200, 52},
+    {38400, 26}, {57600, 17}, {115200, 9},
+    {230400, 4}, {460800, 2}, {921600, 1}
+};
+
+// Global Variables for PWM capture
+volatile uint32_t rising_edge_time = 0;
+volatile uint32_t falling_edge_time = 0;
+volatile uint32_t pulse_width = 0;
+volatile uint32_t period = 0;
+volatile bool pwm_ready = false;
+
+// Global variables for UART baud rate measurement
+volatile bool uart_start_bit_detected = false;
+volatile bool start_baud_detection = false;
 uint32_t uart_start_time = 0;
 uint32_t uart_baud_rate = 0;
 
 // KissFFT arrays for input and output
 kiss_fft_cpx fft_in[NFFT], fft_out[NFFT];
 
-// Function to configure the ADC on ADC_PIN (Analog input)
+// Function to configure the ADC on ADC_PIN
 void configure_adc() {
     adc_init();
     adc_gpio_init(ADC_PIN);
@@ -39,17 +54,24 @@ void configure_adc() {
 }
 
 // Function to capture the PWM signal's rising and falling edges on PWM_INPUT_PIN
-void gpio_callback(uint gpio, uint32_t events) {
+void gpio_callback_pwm(uint gpio, uint32_t events) {
     uint32_t current_time = time_us_32();
     if (gpio == PWM_INPUT_PIN) {
         if (events & GPIO_IRQ_EDGE_RISE) {
-            period = current_time - rising_edge_time; // Calculate period
+            period = current_time - rising_edge_time;
             rising_edge_time = current_time;
         } else if (events & GPIO_IRQ_EDGE_FALL) {
             falling_edge_time = current_time;
-            pulse_width = falling_edge_time - rising_edge_time; // Calculate pulse width
-            pwm_ready = true; // Set flag for main loop to process
+            pulse_width = falling_edge_time - rising_edge_time;
+            pwm_ready = true;
         }
+    }
+}
+
+// Function to handle button press on BUTTON_PIN to initiate baud rate detection
+void gpio_callback_button(uint gpio, uint32_t events) {
+    if (gpio == BUTTON_PIN && (events & GPIO_IRQ_EDGE_FALL)) {
+        start_baud_detection = true;
     }
 }
 
@@ -58,26 +80,49 @@ void configure_pwm_input() {
     gpio_init(PWM_INPUT_PIN);
     gpio_set_dir(PWM_INPUT_PIN, GPIO_IN);
     gpio_pull_down(PWM_INPUT_PIN);
-    gpio_set_irq_enabled_with_callback(PWM_INPUT_PIN, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback);
+    gpio_set_irq_enabled_with_callback(PWM_INPUT_PIN, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback_pwm);
 }
 
-// Function to measure UART baud rate non-blocking
+// Function to configure the button on GPIO 20
+void configure_button() {
+    gpio_init(BUTTON_PIN);
+    gpio_set_dir(BUTTON_PIN, GPIO_IN);
+    gpio_pull_up(BUTTON_PIN);
+    gpio_set_irq_enabled_with_callback(BUTTON_PIN, GPIO_IRQ_EDGE_FALL, true, &gpio_callback_button);
+}
+
+// Function to detect and identify baud rate on GP4 RX pin
 void check_uart_baud_rate() {
     uint32_t current_time = time_us_32();
 
     if (!uart_start_bit_detected) {
-        // Look for the start bit (line going low)
         if (gpio_get(UART_RX_PIN) == 0) {
             uart_start_bit_detected = true;
             uart_start_time = current_time;
         }
     } else {
-        // Look for the stop bit (line going high after start bit detected)
         if (gpio_get(UART_RX_PIN) == 1) {
             uint32_t bit_duration = current_time - uart_start_time;
-            uart_baud_rate = 1000000 / bit_duration; // Calculate baud rate in bps
-            printf("UART Baud Rate: %u bps\n", uart_baud_rate);
-            uart_start_bit_detected = false; // Reset flag for next measurement
+            uart_baud_rate = 0;
+
+            for (int i = 0; i < sizeof(baud_rates) / sizeof(baud_rates[0]); i++) {
+                uint32_t expected_duration = baud_rates[i].expected_duration;
+                uint32_t lower_bound = expected_duration * (100 - TOLERANCE_PERCENT) / 100;
+                uint32_t upper_bound = expected_duration * (100 + TOLERANCE_PERCENT) / 100;
+
+                if (bit_duration >= lower_bound && bit_duration <= upper_bound) {
+                    uart_baud_rate = baud_rates[i].baud_rate;
+                    break;
+                }
+            }
+
+            if (uart_baud_rate != 0) {
+                printf("Detected UART Baud Rate: %u bps\n", uart_baud_rate);
+            } else {
+                printf("Baud Rate detection failed.\n");
+            }
+
+            uart_start_bit_detected = false;
         }
     }
 }
@@ -90,19 +135,16 @@ void perform_fft_analysis() {
         return;
     }
 
-    // Collect ADC samples
     for (int i = 0; i < NFFT; i++) {
         uint16_t raw_adc = adc_read();
-        float voltage = raw_adc * 3.3f / (1 << 12); // Convert ADC value to voltage
-        fft_in[i].r = voltage;   // Real part of the input
-        fft_in[i].i = 0;         // Imaginary part of the input (0 for real signals)
-        sleep_us(1000000 / SAMPLING_FREQUENCY); // Sampling delay
+        float voltage = raw_adc * 3.3f / (1 << 12);
+        fft_in[i].r = voltage;
+        fft_in[i].i = 0;
+        sleep_us(1000000 / SAMPLING_FREQUENCY);
     }
 
-    // Execute FFT
     kiss_fft(cfg, fft_in, fft_out);
 
-    // Analyze FFT results: calculate the magnitude and print the dominant frequency
     float max_magnitude = 0;
     int dominant_frequency_bin = 0;
     for (int i = 0; i < NFFT / 2; i++) {
@@ -113,7 +155,6 @@ void perform_fft_analysis() {
         }
     }
 
-    // Calculate and print the dominant frequency
     float frequency_resolution = (float)SAMPLING_FREQUENCY / NFFT;
     float dominant_frequency = dominant_frequency_bin * frequency_resolution;
     printf("Dominant Frequency: %.2f Hz, Magnitude: %.2f\n", dominant_frequency, max_magnitude);
@@ -127,31 +168,32 @@ int main() {
     // Configure ADC, PWM input, and UART RX for baud rate measurement
     configure_adc();
     configure_pwm_input();
+    configure_button(); // Configure button to initiate baud rate detection
     gpio_init(UART_RX_PIN);
     gpio_set_dir(UART_RX_PIN, GPIO_IN);
 
     printf("System Initialized.\n");
-
+    
     while (1) {
-        // Check PWM data readiness
         if (pwm_ready) {
             if (period > 0) {
-                float pwm_frequency = 1000000.0f / period;  // Frequency in Hz
+                float pwm_frequency = 1000000.0f / period;
                 float duty_cycle = ((float)pulse_width / period) * 100.0f;
-                if (duty_cycle > 100.0f) duty_cycle = 100.0f; // Clamp duty cycle
+                if (duty_cycle > 100.0f) duty_cycle = 100.0f;
 
-                // Display PWM frequency and duty cycle
                 printf("PWM Frequency: %.2f Hz, Duty Cycle: %.2f%%\n", pwm_frequency, duty_cycle);
             }
-            pwm_ready = false;  // Reset flag
+            pwm_ready = false;
         }
 
-        // Perform FFT analysis on the collected ADC data from the IR sensor
         perform_fft_analysis();
 
-        // Non-blocking check for UART baud rate
-        check_uart_baud_rate();
+        if (start_baud_detection) {
+            printf("Initiating UART Baud Rate Detection...\n");
+            check_uart_baud_rate();
+            start_baud_detection = false;
+        }
 
-        sleep_ms(50); // Delay for readability and stability in serial output
+        sleep_ms(50);
     }
 }
