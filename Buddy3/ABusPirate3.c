@@ -1,68 +1,62 @@
 #include "pico/stdlib.h"
-#include "hardware/gpio.h"
+#include "hardware/uart.h"
 #include <stdio.h>
 
-const uint32_t high_timings[] = {10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000};
-const uint32_t low_timings[] = {10000, 20000, 30000, 40000, 50000, 60000, 70000, 80000, 90000, 100000};
+#define UART_ID uart1
+#define UART_TX_PIN 5  // Transmit Pin for testing (GPIO 5)
+#define UART_RX_PIN 4  // Receive Pin for detecting (GPIO 4)
+#define TEST_PATTERN "U" // Known test pattern to detect
 
-const int pulse_count = sizeof(high_timings) / sizeof(high_timings[0]);
-const int repeat_count = 2; // Set desired number of repetitions for each button press
+// List of possible baud rates to test
+const int baud_rates[] = {1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200};
+const int num_baud_rates = sizeof(baud_rates) / sizeof(baud_rates[0]);
 
-volatile bool trigger_pulse = false; // Flag to trigger the pulse sequence on button press
-
-// Function to generate pulses
-void generate_custom_pulse(uint gpio, const uint32_t *high_timings, const uint32_t *low_timings, int count, int repeat_count) {
-    for (int repeat = 0; repeat < repeat_count; repeat++) {
-        for (int i = 0; i < count; i++) {
-            // Debug print to show the current timing values being sent
-            printf("Generating pulse: High %u us, Low %u us\n", high_timings[i], low_timings[i]);
-
-            // Set GPIO high and wait for the specified high duration
-            gpio_put(gpio, 1);
-            sleep_us(high_timings[i]);
-
-            // Set GPIO low and wait for the specified low duration
-            gpio_put(gpio, 0);
-            sleep_us(low_timings[i]);
-        }
-    }
+void setup_uart(int baud_rate) {
+    // Initialize UART with the specified baud rate
+    uart_init(UART_ID, baud_rate);
+    gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);
+    gpio_set_function(UART_RX_PIN, GPIO_FUNC_UART);
 }
 
-// Interrupt handler for button press on GPIO 22
-void button_callback(uint gpio, uint32_t events) {
-    trigger_pulse = true; // Set trigger flag to start generating pulses
+void transmit_test_signal(int baud_rate) {
+    setup_uart(baud_rate);
+    uart_puts(UART_ID, TEST_PATTERN);  // Transmit known test pattern
+    sleep_ms(100000);  // Small delay between transmissions
+}
+
+bool detect_baud_rate() {
+    // Loop through each baud rate and attempt to read data
+    for (int i = 0; i < num_baud_rates; i++) {
+        int baud = baud_rates[i];
+        setup_uart(baud);
+
+        // Wait briefly for UART to stabilize
+        sleep_ms(50);
+
+        // Check if data is available and matches the test pattern
+        if (uart_is_readable(UART_ID)) {
+            char received = uart_getc(UART_ID);
+            if (received == TEST_PATTERN[0]) {  // Check if received character matches pattern
+                printf("Detected baud rate: %d\n", baud);
+                return true;
+            }
+        }
+    }
+    return false;  // No matching baud rate detected
 }
 
 int main() {
     stdio_init_all();
+    printf("UART Baud Rate Detection Test on GPIO 4 (RX) and GPIO 5 (TX)\n");
 
-    const uint gpio_output = 15;
-    const uint gpio_button = 22;
+    // Transmit test signals at various baud rates on GPIO 5
+    for (int i = 0; i < num_baud_rates; i++) {
+        transmit_test_signal(baud_rates[i]);
+    }
 
-    // Initialize GPIO 15 as output for pulse generation
-    gpio_init(gpio_output);
-    gpio_set_dir(gpio_output, GPIO_OUT);
-
-    // Initialize GPIO 22 as input with a pull-up resistor for the button
-    gpio_init(gpio_button);
-    gpio_set_dir(gpio_button, GPIO_IN);
-    gpio_pull_up(gpio_button);
-
-    // Set up interrupt for button press on GPIO 22 (falling edge, when button is pressed)
-    gpio_set_irq_enabled_with_callback(gpio_button, GPIO_IRQ_EDGE_FALL, true, &button_callback);
-
-    while (true) {
-        // Check if the trigger flag is set by the button press
-        if (trigger_pulse) {
-            // Generate the custom pulse sequence
-            generate_custom_pulse(gpio_output, high_timings, low_timings, pulse_count, repeat_count);
-
-            // Reset the trigger flag
-            trigger_pulse = false;
-        }
-
-        // Optional delay to prevent the loop from running too fast
-        sleep_ms(100);
+    // Attempt to detect the transmitted baud rate on GPIO 4
+    if (!detect_baud_rate()) {
+        printf("Failed to detect baud rate.\n");
     }
 
     return 0;
